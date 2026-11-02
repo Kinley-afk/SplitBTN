@@ -1,12 +1,16 @@
-// TEMPORARY: confirms Firebase is configured. Replaced in the navigation step.
-import { Text, View } from 'react-native';
-import { auth } from './src/services/firebase';
+import React from 'react';
+import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { AuthProvider } from './src/context/AuthContext';
+import RootNavigator from './src/navigation/RootNavigator';
 
 export default function App() {
   return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-      <Text style={{ fontSize: 22, fontWeight: 'bold' }}>SplitBTN</Text>
-      <Text>Firebase project: {auth.app.options.projectId}</Text>
-    </View>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <StatusBar style="auto" />
+        <RootNavigator />
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
