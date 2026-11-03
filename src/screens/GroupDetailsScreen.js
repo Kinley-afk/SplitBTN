@@ -1,4 +1,5 @@
-// Group details: invite code, expense history, live member list, leave button.
+// Group details: invite code, balances and settle-up shortcuts, expense history,
+// live member list, leave button (blocked while you still owe or are owed money).
 import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, Alert, Share, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,7 +10,7 @@ import ExpenseRow from '../components/ExpenseRow';
 import EmptyState from '../components/EmptyState';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupsContext';
-import useGroupExpenses from '../hooks/useGroupExpenses';
+import useGroupBalances from '../hooks/useGroupBalances';
 import { getUserProfiles, leaveGroup, getFriendlyGroupError } from '../services/groupService';
 import { toChetrum, fromChetrum } from '../utils/splitCalculator';
 import { formatNu } from '../utils/formatCurrency';
@@ -19,7 +20,10 @@ export default function GroupDetailsScreen({ route, navigation }) {
   const { groupId } = route.params;
   const { user } = useAuth();
   const { groups } = useGroups();
-  const { expenses, loading: expensesLoading, error: expensesError } = useGroupExpenses(groupId);
+  // One hook gives expenses, settlements and the calculated balances.
+  const {
+    expenses, balances, loading: dataLoading, error: dataError,
+  } = useGroupBalances(groupId);
   const [profiles, setProfiles] = useState({});
   const [leaving, setLeaving] = useState(false);
 
@@ -69,6 +73,27 @@ export default function GroupDetailsScreen({ route, navigation }) {
 
   const handleLeave = () => {
     const isLastMember = group.memberIds.length === 1;
+
+    // The last member can always leave (the group is deleted).
+    // Everyone else must be settled up first. This check is in the app only:
+    // Firestore rules cannot calculate balances.
+    if (!isLastMember) {
+      if (dataLoading || dataError) {
+        Alert.alert('Please wait', 'Your balance could not be checked yet. Try again in a moment.');
+        return;
+      }
+      const myBalance = balances[user.uid] || 0;
+      if (myBalance !== 0) {
+        Alert.alert(
+          'Settle up first',
+          myBalance < 0
+            ? `You still owe ${formatNu(-myBalance)} in this group. Record your payments before leaving.`
+            : `You are still owed ${formatNu(myBalance)} in this group. Ask for payment (or record it) before leaving.`
+        );
+        return;
+      }
+    }
+
     Alert.alert(
       'Leave group?',
       isLastMember
@@ -95,6 +120,12 @@ export default function GroupDetailsScreen({ route, navigation }) {
           </Card>
           <AppButton title="+ Add Expense"
             onPress={() => navigation.navigate('AddExpense', { groupId })} />
+          <View style={styles.buttonRow}>
+            <AppButton title="Balances" variant="outline" style={styles.rowButton}
+              onPress={() => navigation.navigate('BalanceSummary', { groupId })} />
+            <AppButton title="Settle Up" variant="outline" style={styles.rowButton}
+              onPress={() => navigation.navigate('SettleUp', { groupId })} />
+          </View>
         </FadeInView>
 
         <FadeInView delay={120} style={{ marginTop: spacing.lg }}>
@@ -103,10 +134,10 @@ export default function GroupDetailsScreen({ route, navigation }) {
             {expenses.length > 0 ? <Text style={styles.total}>Total {formatNu(totalSpent)}</Text> : null}
           </View>
           <Card>
-            {expensesLoading ? (
+            {dataLoading ? (
               <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.md }} />
-            ) : expensesError ? (
-              <Text style={styles.errorText}>{expensesError}</Text>
+            ) : dataError ? (
+              <Text style={styles.errorText}>{dataError}</Text>
             ) : expenses.length === 0 ? (
               <EmptyState icon="receipt-outline" title="No expenses yet"
                 message="Tap Add Expense to record the first one." />
@@ -158,6 +189,8 @@ const styles = StyleSheet.create({
     fontSize: 34, fontWeight: '800', letterSpacing: 6, color: colors.primary,
     textAlign: 'center', marginVertical: spacing.md,
   },
+  buttonRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+  rowButton: { flex: 1 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: colors.text, marginBottom: spacing.sm },
   total: { color: colors.textMuted, fontSize: fontSize.small, fontWeight: '600' },

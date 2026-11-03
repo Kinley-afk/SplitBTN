@@ -13,6 +13,8 @@ import JoinGroupScreen from '../screens/JoinGroupScreen';
 import GroupDetailsScreen from '../screens/GroupDetailsScreen';
 import AddEditExpenseScreen from '../screens/AddEditExpenseScreen';
 import ExpenseDetailsScreen from '../screens/ExpenseDetailsScreen';
+import BalanceSummaryScreen from '../screens/BalanceSummaryScreen';
+import SettleUpScreen from '../screens/SettleUpScreen';
 import MainTabs from './MainTabs';
 import { colors } from '../constants/theme';
 
@@ -56,6 +58,10 @@ export default function RootNavigator() {
               })} />
             <Stack.Screen name="ExpenseDetails" component={ExpenseDetailsScreen}
               options={{ ...pushedScreenOptions, title: 'Expense' }} />
+            <Stack.Screen name="BalanceSummary" component={BalanceSummaryScreen}
+              options={{ ...pushedScreenOptions, title: 'Balances' }} />
+            <Stack.Screen name="SettleUp" component={SettleUpScreen}
+              options={{ ...pushedScreenOptions, title: 'Settle Up' }} />
           </>
         ) : (
           <>
