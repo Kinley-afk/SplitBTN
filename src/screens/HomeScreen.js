@@ -1,18 +1,22 @@
-// Home dashboard shell. Balance figures are real zeros for now;
-// they become live once groups and expenses exist (later stages).
+// Home dashboard. Groups are live from Firestore.
+// Balance figures are still zero placeholders until the balance module is connected.
 import React from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Card from '../components/Card';
 import AppButton from '../components/AppButton';
+import GroupCard from '../components/GroupCard';
+import EmptyState from '../components/EmptyState';
 import FadeInView from '../components/FadeInView';
 import { useAuth } from '../context/AuthContext';
+import { useGroups } from '../context/GroupsContext';
 import { formatNu } from '../utils/formatCurrency';
 import { colors, spacing, radius, fontSize } from '../constants/theme';
 
 export default function HomeScreen({ navigation }) {
   const { user } = useAuth();
+  const { groups, loading } = useGroups();
   const firstName = (user?.displayName || 'friend').split(' ')[0];
 
   // Placeholder totals until the balance module is connected.
@@ -63,12 +67,24 @@ export default function HomeScreen({ navigation }) {
 
         <FadeInView delay={300} style={{ marginTop: spacing.lg }}>
           <Text style={styles.sectionTitle}>Your groups</Text>
-          <Card>
-            <View style={styles.empty}>
-              <Ionicons name="people-outline" size={36} color={colors.textMuted} />
-              <Text style={styles.emptyText}>No groups yet. Groups appear here in the next stage.</Text>
-            </View>
-          </Card>
+          {loading ? (
+            <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.md }} />
+          ) : groups.length === 0 ? (
+            <Card>
+              <EmptyState
+                icon="people-outline"
+                title="No groups yet"
+                message="Create or join a group to start splitting."
+                actionLabel="Go to Groups"
+                onAction={() => navigation.navigate('Groups')}
+              />
+            </Card>
+          ) : (
+            groups.slice(0, 3).map((group) => (
+              <GroupCard key={group.id} group={group}
+                onPress={() => navigation.navigate('GroupDetails', { groupId: group.id })} />
+            ))
+          )}
         </FadeInView>
 
         <FadeInView delay={400}>
