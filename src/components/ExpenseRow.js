@@ -1,4 +1,4 @@
-// One line in the expense history list.
+// One line in an expense list. On Home, groupName shows which group it belongs to.
 import React from 'react';
 import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,7 +7,8 @@ import { formatNu } from '../utils/formatCurrency';
 import { formatDisplayDate } from '../utils/dateUtils';
 import { colors, spacing, fontSize } from '../constants/theme';
 
-export default function ExpenseRow({ expense, payerName, onPress }) {
+export default function ExpenseRow({ expense, payerName, groupName, onPress }) {
+  const details = `${payerName} paid · ${formatDisplayDate(expense.dateMs)}`;
   return (
     <Pressable
       onPress={onPress}
@@ -21,7 +22,7 @@ export default function ExpenseRow({ expense, payerName, onPress }) {
       <View style={styles.info}>
         <Text style={styles.title} numberOfLines={1}>{expense.title}</Text>
         <Text style={styles.meta} numberOfLines={1}>
-          {payerName} paid · {formatDisplayDate(expense.dateMs)} · {expense.category}
+          {groupName ? `${groupName} · ${details}` : `${details} · ${expense.category}`}
         </Text>
       </View>
       <Text style={styles.amount}>{formatNu(expense.amount)}</Text>
