@@ -11,6 +11,8 @@ import RegisterScreen from '../screens/RegisterScreen';
 import CreateGroupScreen from '../screens/CreateGroupScreen';
 import JoinGroupScreen from '../screens/JoinGroupScreen';
 import GroupDetailsScreen from '../screens/GroupDetailsScreen';
+import AddEditExpenseScreen from '../screens/AddEditExpenseScreen';
+import ExpenseDetailsScreen from '../screens/ExpenseDetailsScreen';
 import MainTabs from './MainTabs';
 import { colors } from '../constants/theme';
 
@@ -46,6 +48,14 @@ export default function RootNavigator() {
               options={{ ...pushedScreenOptions, title: 'Join Group' }} />
             <Stack.Screen name="GroupDetails" component={GroupDetailsScreen}
               options={{ ...pushedScreenOptions, title: 'Group' }} />
+            <Stack.Screen name="AddExpense" component={AddEditExpenseScreen}
+              options={({ route }) => ({
+                ...pushedScreenOptions,
+                animation: 'slide_from_bottom',
+                title: route.params?.expense ? 'Edit Expense' : 'Add Expense',
+              })} />
+            <Stack.Screen name="ExpenseDetails" component={ExpenseDetailsScreen}
+              options={{ ...pushedScreenOptions, title: 'Expense' }} />
           </>
         ) : (
           <>

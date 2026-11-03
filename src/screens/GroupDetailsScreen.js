@@ -1,20 +1,25 @@
-// Group details: invite code, live member list, leave button.
-// The expense history section is added in the next stage.
+// Group details: invite code, expense history, live member list, leave button.
 import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, Alert, Share, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Card from '../components/Card';
 import AppButton from '../components/AppButton';
 import FadeInView from '../components/FadeInView';
+import ExpenseRow from '../components/ExpenseRow';
+import EmptyState from '../components/EmptyState';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupsContext';
+import useGroupExpenses from '../hooks/useGroupExpenses';
 import { getUserProfiles, leaveGroup, getFriendlyGroupError } from '../services/groupService';
+import { toChetrum, fromChetrum } from '../utils/splitCalculator';
+import { formatNu } from '../utils/formatCurrency';
 import { colors, spacing, radius, fontSize } from '../constants/theme';
 
 export default function GroupDetailsScreen({ route, navigation }) {
   const { groupId } = route.params;
   const { user } = useAuth();
   const { groups } = useGroups();
+  const { expenses, loading: expensesLoading, error: expensesError } = useGroupExpenses(groupId);
   const [profiles, setProfiles] = useState({});
   const [leaving, setLeaving] = useState(false);
 
@@ -40,6 +45,11 @@ export default function GroupDetailsScreen({ route, navigation }) {
       </View>
     );
   }
+
+  const nameOf = (uid) => profiles[uid]?.displayName || '...';
+
+  // Sum in whole chetrum so the total never drifts.
+  const totalSpent = fromChetrum(expenses.reduce((sum, e) => sum + toChetrum(e.amount), 0));
 
   const handleShare = () =>
     Share.share({
@@ -83,13 +93,37 @@ export default function GroupDetailsScreen({ route, navigation }) {
             </Text>
             <AppButton title="Share Code" variant="outline" onPress={handleShare} />
           </Card>
+          <AppButton title="+ Add Expense"
+            onPress={() => navigation.navigate('AddExpense', { groupId })} />
         </FadeInView>
 
-        <FadeInView delay={120}>
+        <FadeInView delay={120} style={{ marginTop: spacing.lg }}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Expenses ({expenses.length})</Text>
+            {expenses.length > 0 ? <Text style={styles.total}>Total {formatNu(totalSpent)}</Text> : null}
+          </View>
+          <Card>
+            {expensesLoading ? (
+              <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.md }} />
+            ) : expensesError ? (
+              <Text style={styles.errorText}>{expensesError}</Text>
+            ) : expenses.length === 0 ? (
+              <EmptyState icon="receipt-outline" title="No expenses yet"
+                message="Tap Add Expense to record the first one." />
+            ) : (
+              expenses.map((expense) => (
+                <ExpenseRow key={expense.id} expense={expense} payerName={nameOf(expense.paidBy)}
+                  onPress={() => navigation.navigate('ExpenseDetails', { groupId, expenseId: expense.id })} />
+              ))
+            )}
+          </Card>
+        </FadeInView>
+
+        <FadeInView delay={240}>
           <Text style={styles.sectionTitle}>Members ({group.memberIds.length})</Text>
           <Card>
             {group.memberIds.map((uid) => {
-              const displayName = profiles[uid]?.displayName || '...';
+              const displayName = nameOf(uid);
               return (
                 <View key={uid} style={styles.memberRow}>
                   <View style={styles.avatar}>
@@ -102,14 +136,6 @@ export default function GroupDetailsScreen({ route, navigation }) {
                 </View>
               );
             })}
-          </Card>
-        </FadeInView>
-
-        <FadeInView delay={240}>
-          <Text style={styles.sectionTitle}>Expenses</Text>
-          <Card>
-            {/* TEMPORARY: replaced by the real expense history in the next stage */}
-            <Text style={styles.placeholder}>Expense tracking is added in the next stage.</Text>
           </Card>
         </FadeInView>
 
@@ -132,7 +158,10 @@ const styles = StyleSheet.create({
     fontSize: 34, fontWeight: '800', letterSpacing: 6, color: colors.primary,
     textAlign: 'center', marginVertical: spacing.md,
   },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: colors.text, marginBottom: spacing.sm },
+  total: { color: colors.textMuted, fontSize: fontSize.small, fontWeight: '600' },
+  errorText: { color: colors.danger, textAlign: 'center', paddingVertical: spacing.md },
   memberRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm },
   avatar: {
     width: 40, height: 40, borderRadius: 20, backgroundColor: colors.accent,
@@ -145,5 +174,4 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.primary, borderRadius: radius.sm,
     paddingHorizontal: spacing.sm, paddingVertical: 2,
   },
-  placeholder: { color: colors.textMuted, textAlign: 'center', paddingVertical: spacing.sm },
 });

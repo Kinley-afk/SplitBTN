@@ -1,0 +1,92 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Profiles: any signed-in user can read (needed to show member names),
+    // but only the owner can write their own profile.
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /groups/{groupId} {
+      function isMember() {
+        return request.auth.uid in resource.data.memberIds;
+      }
+      function onlyMembersChanged() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds']);
+      }
+      // A non-member may add exactly one member: themselves.
+      function isJoining() {
+        return !isMember()
+          && onlyMembersChanged()
+          && request.resource.data.memberIds.hasAll(resource.data.memberIds)
+          && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1
+          && request.auth.uid in request.resource.data.memberIds;
+      }
+      // A member may remove exactly one member: themselves.
+      function isLeaving() {
+        return isMember()
+          && onlyMembersChanged()
+          && !(request.auth.uid in request.resource.data.memberIds)
+          && request.resource.data.memberIds.size() == resource.data.memberIds.size() - 1;
+      }
+
+      allow read: if isSignedIn() && isMember();
+      allow create: if isSignedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.memberIds == [request.auth.uid]
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 40
+        && request.resource.data.inviteCode is string;
+      allow update: if isSignedIn() && (isJoining() || isLeaving());
+      // Only the last remaining member can delete the group.
+      allow delete: if isSignedIn() && resource.data.memberIds == [request.auth.uid];
+
+      // Expenses inside a group.
+      match /expenses/{expenseId} {
+        function groupData() {
+          return get(/databases/$(database)/documents/groups/$(groupId)).data;
+        }
+        function isGroupMember() {
+          return isSignedIn() && request.auth.uid in groupData().memberIds;
+        }
+        function isValidExpense() {
+          let d = request.resource.data;
+          return d.title is string && d.title.size() >= 1 && d.title.size() <= 60
+            && d.amount is number && d.amount > 0
+            && d.category is string
+            && d.paidBy in groupData().memberIds
+            && d.participantIds is list && d.participantIds.size() > 0
+            && groupData().memberIds.hasAll(d.participantIds)
+            && d.createdBy is string;
+        }
+
+        allow read: if isGroupMember();
+        allow create: if isGroupMember() && isValidExpense()
+          && request.resource.data.createdBy == request.auth.uid;
+        // Only the creator can change or delete an expense.
+        allow update: if isGroupMember() && isValidExpense()
+          && resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdBy == resource.data.createdBy;
+        allow delete: if isGroupMember() && resource.data.createdBy == request.auth.uid;
+      }
+    }
+
+    // Lookup table: invite code -> group id. Single-document reads only (no listing).
+    match /inviteCodes/{code} {
+      allow get: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.groupId is string;
+      allow delete: if isSignedIn()
+        && (resource.data.createdBy == request.auth.uid
+            || request.auth.uid in get(/databases/$(database)/documents/groups/$(resource.data.groupId)).data.memberIds);
+    }
+  }
+}
