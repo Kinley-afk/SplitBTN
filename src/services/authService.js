@@ -55,3 +55,15 @@ export function loginUser(email, password) {
 export function logoutUser() {
   return signOut(auth);
 }
+
+// Updates the display name in Firebase Auth AND the Firestore profile
+// document, so group member lists show the new name later.
+export async function updateDisplayName(newName) {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Not logged in');
+  const trimmed = newName.trim();
+
+  await updateProfile(user, { displayName: trimmed });
+  // merge: true creates the document if it is missing and keeps other fields.
+  await setDoc(doc(db, 'users', user.uid), { displayName: trimmed }, { merge: true });
+}
