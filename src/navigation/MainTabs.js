@@ -5,6 +5,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import HomeScreen from '../screens/HomeScreen';
 import GroupsScreen from '../screens/GroupsScreen';
+import StatsScreen from '../screens/StatsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import { colors } from '../constants/theme';
 
@@ -14,6 +15,7 @@ const Tab = createBottomTabNavigator();
 const ICONS = {
   Home: ['home', 'home-outline'],
   Groups: ['people', 'people-outline'],
+  Spending: ['pie-chart', 'pie-chart-outline'],
   Profile: ['person', 'person-outline'],
 };
 
@@ -53,6 +55,7 @@ export default function MainTabs() {
     >
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Groups" component={GroupsScreen} />
+      <Tab.Screen name="Spending" component={StatsScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
