@@ -1,5 +1,6 @@
 // Record a payment to another member, and see the payment history.
 // Balances update automatically because they are recalculated from the records.
+// The person who was paid gets a notification.
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, KeyboardAvoidingView, Platform, Alert, Pressable,
@@ -19,6 +20,7 @@ import { getUserProfiles } from '../services/groupService';
 import {
   addSettlement, deleteSettlement, getFriendlySettlementError,
 } from '../services/settlementService';
+import { notifyMembers } from '../services/notificationService';
 import { parseMoney, toChetrum } from '../utils/splitCalculator';
 import { validateAmount } from '../utils/expenseValidation';
 import { formatNu } from '../utils/formatCurrency';
@@ -85,6 +87,15 @@ export default function SettleUpScreen({ route }) {
     setSaving(true);
     try {
       await addSettlement(groupId, { to: toUid, amount }, user.uid);
+      // Not awaited: a notification problem must never block recording the payment.
+      notifyMembers({
+        groupId,
+        recipientIds: [toUid],
+        fromUid: user.uid,
+        type: 'payment',
+        title: `Payment received in ${group.name}`,
+        body: `${user.displayName || 'A member'} paid you ${formatNu(amount)}`,
+      });
       setSaved(true);
     } catch (error) {
       setErrors({ form: getFriendlySettlementError(error) });

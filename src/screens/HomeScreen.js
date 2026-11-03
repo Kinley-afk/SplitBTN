@@ -11,6 +11,7 @@ import GroupCard from '../components/GroupCard';
 import ExpenseRow from '../components/ExpenseRow';
 import EmptyState from '../components/EmptyState';
 import FadeInView from '../components/FadeInView';
+import NotificationBell from '../components/NotificationBell';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupsContext';
 import useAllGroupsSummary from '../hooks/useAllGroupsSummary';
@@ -64,7 +65,10 @@ export default function HomeScreen({ navigation }) {
         <FadeInView>
           <View style={styles.headerRow}>
             <View>
-              <Text style={styles.brand}>SplitBTN</Text>
+              <View style={styles.brandRow}>
+                <Text style={styles.brand}>SplitBTN</Text>
+                <NotificationBell onPress={() => navigation.navigate('Notifications')} />
+              </View>
               <Text style={styles.welcome}>Welcome, {firstName}</Text>
             </View>
             <Pressable
@@ -175,6 +179,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   container: { padding: spacing.lg },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
+  brandRow: { flexDirection: 'row', alignItems: 'center' },
   brand: { fontSize: fontSize.hero, fontWeight: '800', color: colors.primary },
   welcome: { color: colors.textMuted, fontSize: fontSize.body },
   avatar: {

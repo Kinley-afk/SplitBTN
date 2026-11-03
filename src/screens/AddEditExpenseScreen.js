@@ -1,5 +1,6 @@
 // Add a new expense, or edit one (when route.params.expense exists).
 // The split preview uses calculateSplit, the same function whose result is saved.
+// A new expense also notifies the other group members.
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
@@ -14,6 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupsContext';
 import { getUserProfiles } from '../services/groupService';
 import { addExpense, updateExpense, getFriendlyExpenseError } from '../services/expenseService';
+import { notifyMembers } from '../services/notificationService';
 import { calculateSplit, parseMoney } from '../utils/splitCalculator';
 import { validateExpenseTitle, validateAmount, validateExpenseDate } from '../utils/expenseValidation';
 import { toDateInput, parseDateInput } from '../utils/dateUtils';
@@ -131,8 +133,20 @@ export default function AddEditExpenseScreen({ route, navigation }) {
         shares: result.shares,
         percentages: result.percentages,
       };
-      if (isEdit) await updateExpense(groupId, expense.id, data);
-      else await addExpense(groupId, data, user.uid);
+      if (isEdit) {
+        await updateExpense(groupId, expense.id, data);
+      } else {
+        await addExpense(groupId, data, user.uid);
+        // Not awaited: a notification problem must never block saving.
+        notifyMembers({
+          groupId,
+          recipientIds: group.memberIds,
+          fromUid: user.uid,
+          type: 'expense',
+          title: `New expense in ${group.name}`,
+          body: `${user.displayName || 'A member'} added "${data.title}" (${formatNu(data.amount)})`,
+        });
+      }
       setSaved(true);
     } catch (error) {
       setErrors({ form: getFriendlyExpenseError(error) });

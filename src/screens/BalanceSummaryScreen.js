@@ -1,6 +1,7 @@
 // Who owes whom in a group. Live: it updates when expenses or payments change.
+// Someone who is owed money can send a payment reminder (Remind button).
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, Pressable, Alert, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Card from '../components/Card';
 import AppButton from '../components/AppButton';
@@ -10,6 +11,7 @@ import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupsContext';
 import useGroupBalances from '../hooks/useGroupBalances';
 import { getUserProfiles } from '../services/groupService';
+import { notifyMembers } from '../services/notificationService';
 import { formatNu } from '../utils/formatCurrency';
 import { colors, spacing, radius, fontSize } from '../constants/theme';
 
@@ -20,6 +22,8 @@ export default function BalanceSummaryScreen({ route, navigation }) {
   const group = groups.find((g) => g.id === groupId);
   const { balances, transfers, isBalanced, loading, error } = useGroupBalances(groupId);
   const [profiles, setProfiles] = useState({});
+  // "debtorId-creditorId" keys for reminders already sent (stops repeat taps).
+  const [reminded, setReminded] = useState({});
 
   // Names for current members AND anyone who left but appears in the records.
   const ids = useMemo(
@@ -44,6 +48,25 @@ export default function BalanceSummaryScreen({ route, navigation }) {
 
   const nameOf = (uid) => (profiles[uid]?.displayName || '...') + (uid === user.uid ? ' (You)' : '');
   const myBalance = balances[user.uid] || 0;
+
+  // Sends a payment reminder to someone who owes the current user.
+  const handleRemind = async (transfer) => {
+    const key = `${transfer.from}-${transfer.to}`;
+    if (reminded[key]) return;
+    setReminded((current) => ({ ...current, [key]: true }));
+    const sent = await notifyMembers({
+      groupId,
+      recipientIds: [transfer.from],
+      fromUid: user.uid,
+      type: 'reminder',
+      title: `Payment reminder from ${group.name}`,
+      body: `${user.displayName || 'A member'} reminded you to pay ${formatNu(transfer.amount)}`,
+    });
+    if (!sent) {
+      setReminded((current) => ({ ...current, [key]: false }));
+      Alert.alert('Reminder not sent', 'Check your connection and try again.');
+    }
+  };
 
   // Show current members, plus anyone who left but still has a balance.
   const rows = ids
@@ -105,28 +128,43 @@ export default function BalanceSummaryScreen({ route, navigation }) {
               <EmptyState icon="checkmark-circle-outline" title="Everyone is settled up"
                 message="No payments are needed right now." />
             ) : (
-              transfers.map((transfer) => (
-                <View key={`${transfer.from}-${transfer.to}`} style={styles.transferRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.transferText}>
-                      {nameOf(transfer.from)} pays {nameOf(transfer.to)}
-                    </Text>
-                    <Text style={styles.transferAmount}>{formatNu(transfer.amount)}</Text>
+              transfers.map((transfer) => {
+                const key = `${transfer.from}-${transfer.to}`;
+                const alreadyReminded = Boolean(reminded[key]);
+                return (
+                  <View key={key} style={styles.transferRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.transferText}>
+                        {nameOf(transfer.from)} pays {nameOf(transfer.to)}
+                      </Text>
+                      <Text style={styles.transferAmount}>{formatNu(transfer.amount)}</Text>
+                    </View>
+                    {transfer.to === user.uid && group.memberIds.includes(transfer.from) ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remind ${nameOf(transfer.from)}`}
+                        disabled={alreadyReminded}
+                        style={[styles.remindButton, alreadyReminded && { opacity: 0.5 }]}
+                        onPress={() => handleRemind(transfer)}
+                      >
+                        <Text style={styles.remindText}>{alreadyReminded ? 'Sent' : 'Remind'}</Text>
+                      </Pressable>
+                    ) : null}
+                    {transfer.from === user.uid && group.memberIds.includes(transfer.to) ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Pay ${nameOf(transfer.to)}`}
+                        style={styles.payButton}
+                        onPress={() => navigation.navigate('SettleUp', {
+                          groupId, toUid: transfer.to, amount: String(transfer.amount),
+                        })}
+                      >
+                        <Text style={styles.payText}>Pay</Text>
+                      </Pressable>
+                    ) : null}
                   </View>
-                  {transfer.from === user.uid && group.memberIds.includes(transfer.to) ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Pay ${nameOf(transfer.to)}`}
-                      style={styles.payButton}
-                      onPress={() => navigation.navigate('SettleUp', {
-                        groupId, toUid: transfer.to, amount: String(transfer.amount),
-                      })}
-                    >
-                      <Text style={styles.payText}>Pay</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              ))
+                );
+              })
             )}
           </Card>
           <Text style={styles.note}>
@@ -163,5 +201,10 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md,
   },
   payText: { color: colors.white, fontWeight: '700' },
+  remindButton: {
+    minHeight: 44, minWidth: 72, borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.primary,
+    alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md,
+  },
+  remindText: { color: colors.primary, fontWeight: '700' },
   note: { color: colors.textMuted, fontSize: fontSize.small, marginBottom: spacing.sm },
 });

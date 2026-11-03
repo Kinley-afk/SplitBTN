@@ -15,6 +15,7 @@ import AddEditExpenseScreen from '../screens/AddEditExpenseScreen';
 import ExpenseDetailsScreen from '../screens/ExpenseDetailsScreen';
 import BalanceSummaryScreen from '../screens/BalanceSummaryScreen';
 import SettleUpScreen from '../screens/SettleUpScreen';
+import NotificationsScreen from '../screens/NotificationsScreen';
 import MainTabs from './MainTabs';
 import { colors } from '../constants/theme';
 
@@ -62,6 +63,8 @@ export default function RootNavigator() {
               options={{ ...pushedScreenOptions, title: 'Balances' }} />
             <Stack.Screen name="SettleUp" component={SettleUpScreen}
               options={{ ...pushedScreenOptions, title: 'Settle Up' }} />
+            <Stack.Screen name="Notifications" component={NotificationsScreen}
+              options={{ ...pushedScreenOptions, title: 'Notifications' }} />
           </>
         ) : (
           <>
