@@ -1,5 +1,6 @@
-// Group details: invite code, balances and settle-up shortcuts, expense history,
-// live member list, leave button (blocked while you still owe or are owed money).
+// Group details: invite code, balances and settle-up shortcuts, recent expenses
+// with a link to the full searchable history, live member list, leave button
+// (blocked while you still owe or are owed money).
 import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, Alert, Share, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,6 +16,8 @@ import { getUserProfiles, leaveGroup, getFriendlyGroupError } from '../services/
 import { toChetrum, fromChetrum } from '../utils/splitCalculator';
 import { formatNu } from '../utils/formatCurrency';
 import { colors, spacing, radius, fontSize } from '../constants/theme';
+
+const RECENT_LIMIT = 5;
 
 export default function GroupDetailsScreen({ route, navigation }) {
   const { groupId } = route.params;
@@ -54,6 +57,7 @@ export default function GroupDetailsScreen({ route, navigation }) {
 
   // Sum in whole chetrum so the total never drifts.
   const totalSpent = fromChetrum(expenses.reduce((sum, e) => sum + toChetrum(e.amount), 0));
+  const recentExpenses = expenses.slice(0, RECENT_LIMIT);
 
   const handleShare = () =>
     Share.share({
@@ -142,15 +146,21 @@ export default function GroupDetailsScreen({ route, navigation }) {
               <EmptyState icon="receipt-outline" title="No expenses yet"
                 message="Tap Add Expense to record the first one." />
             ) : (
-              expenses.map((expense) => (
+              recentExpenses.map((expense) => (
                 <ExpenseRow key={expense.id} expense={expense} payerName={nameOf(expense.paidBy)}
                   onPress={() => navigation.navigate('ExpenseDetails', { groupId, expenseId: expense.id })} />
               ))
             )}
           </Card>
+          {expenses.length > 0 ? (
+            <AppButton
+              title={expenses.length > RECENT_LIMIT ? 'View all, search and filter' : 'Search and filter'}
+              variant="outline"
+              onPress={() => navigation.navigate('ExpenseHistory', { groupId })} />
+          ) : null}
         </FadeInView>
 
-        <FadeInView delay={240}>
+        <FadeInView delay={240} style={{ marginTop: spacing.lg }}>
           <Text style={styles.sectionTitle}>Members ({group.memberIds.length})</Text>
           <Card>
             {group.memberIds.map((uid) => {
