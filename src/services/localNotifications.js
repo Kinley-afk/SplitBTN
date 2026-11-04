@@ -16,6 +16,7 @@ let granted = false;
 // Call once after login: sets up the Android channel and asks permission.
 export async function setupLocalNotifications() {
   if (!Notifications || granted) return;
+
   try {
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
@@ -25,19 +26,31 @@ export async function setupLocalNotifications() {
         shouldSetBadge: false,
       }),
     });
-    if (Platform.OS === 'android') {
+  } catch (error) {
+    console.warn('Notification handler setup failed:', error.message);
+  }
+
+  // The channel is optional. Expo Go can fail here, and that must not stop
+  // the permission request below.
+  if (Platform.OS === 'android') {
+    try {
       await Notifications.setNotificationChannelAsync('default', {
         name: 'SplitBTN',
         importance: Notifications.AndroidImportance.HIGH,
       });
+    } catch (error) {
+      console.warn('Notification channel not created (continuing):', error.message);
     }
+  }
+
+  try {
     let { status } = await Notifications.getPermissionsAsync();
     if (status !== 'granted') {
       status = (await Notifications.requestPermissionsAsync()).status;
     }
     granted = status === 'granted';
   } catch (error) {
-    console.warn('Notification setup failed:', error.message);
+    console.warn('Notification permission failed:', error.message);
   }
 }
 

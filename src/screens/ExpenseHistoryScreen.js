@@ -1,7 +1,7 @@
-// Full expense history for a group with search, filters and sorting.
-// It reads live expenses, so results update when expenses change.
+// Full expense history for a group with search, filters, sorting and PDF export.
+// It reads live data, so results update when expenses or payments change.
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, Alert, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Card from '../components/Card';
 import AppInput from '../components/AppInput';
@@ -11,9 +11,11 @@ import ExpenseRow from '../components/ExpenseRow';
 import EmptyState from '../components/EmptyState';
 import { useAuth } from '../context/AuthContext';
 import { useGroups } from '../context/GroupsContext';
-import useGroupExpenses from '../hooks/useGroupExpenses';
+import useGroupBalances from '../hooks/useGroupBalances';
 import { getUserProfiles } from '../services/groupService';
+import { exportPdf } from '../services/pdfExport';
 import { filterExpenses, sumExpenses, countActiveFilters } from '../utils/expenseFilter';
+import { buildReportHtml } from '../utils/pdfReport';
 import { parseDateInput } from '../utils/dateUtils';
 import { formatNu } from '../utils/formatCurrency';
 import { CATEGORIES } from '../constants/categories';
@@ -30,7 +32,8 @@ export default function ExpenseHistoryScreen({ route, navigation }) {
   const { user } = useAuth();
   const { groups } = useGroups();
   const group = groups.find((g) => g.id === groupId);
-  const { expenses, loading, error } = useGroupExpenses(groupId);
+  // Expenses plus the balances and suggested payments (used in the PDF report).
+  const { expenses, balances, transfers, loading, error } = useGroupBalances(groupId);
 
   const [profiles, setProfiles] = useState({});
   const [query, setQuery] = useState('');
@@ -40,11 +43,13 @@ export default function ExpenseHistoryScreen({ route, navigation }) {
   const [toText, setToText] = useState('');
   const [sort, setSort] = useState('newest');
   const [showFilters, setShowFilters] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
-  // Names for current members and for anyone who paid an expense.
+  // Names for members, payers, and anyone who appears in the balances.
   const idsKey = Array.from(new Set([
     ...(group ? group.memberIds : []),
     ...expenses.map((e) => e.paidBy),
+    ...Object.keys(balances),
   ])).join(',');
   useEffect(() => {
     if (!idsKey) return;
@@ -92,6 +97,39 @@ export default function ExpenseHistoryScreen({ route, navigation }) {
     setPaidBy('');
     setFromText('');
     setToText('');
+  };
+
+  // Exports exactly the expenses currently listed (after search, filters and sorting).
+  const handleExport = async () => {
+    if (results.length === 0) {
+      Alert.alert('Nothing to export', 'There are no expenses in the list. Clear the filters and try again.');
+      return;
+    }
+    setExporting(true);
+    try {
+      const html = buildReportHtml({
+        groupName: group.name,
+        generatedAtMs: Date.now(),
+        expenses: results,
+        balances,
+        transfers,
+        nameOf: (uid) => profiles[uid]?.displayName || 'Member',
+        filterNote: results.length < expenses.length
+          ? `Filtered: showing ${results.length} of ${expenses.length} expenses`
+          : '',
+      });
+      await exportPdf(html);
+    } catch (err) {
+      console.warn('PDF export failed:', err.message);
+      Alert.alert(
+        'Could not export',
+        err.message === 'SHARING_UNAVAILABLE'
+          ? 'Sharing is not available on this device.'
+          : 'Something went wrong while creating the PDF. Please try again.'
+      );
+    } finally {
+      setExporting(false);
+    }
   };
 
   if (!group) {
@@ -154,6 +192,11 @@ export default function ExpenseHistoryScreen({ route, navigation }) {
           {results.length} of {expenses.length} {expenses.length === 1 ? 'expense' : 'expenses'}
           {results.length > 0 ? ` · Total ${formatNu(sumExpenses(results))}` : ''}
         </Text>
+
+        {expenses.length > 0 ? (
+          <AppButton title="Export as PDF" variant="outline" onPress={handleExport}
+            loading={exporting} style={{ marginBottom: spacing.md }} />
+        ) : null}
 
         <Card>
           {loading ? (
