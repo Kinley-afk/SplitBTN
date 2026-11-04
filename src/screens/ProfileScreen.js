@@ -1,6 +1,7 @@
-// Profile and settings: shows account details, edits the display name, logs out.
+// Profile and settings: shows account details, edits the display name,
+// offline testing switch, logs out.
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Switch, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Card from '../components/Card';
 import AppInput from '../components/AppInput';
@@ -8,6 +9,9 @@ import AppButton from '../components/AppButton';
 import FadeInView from '../components/FadeInView';
 import { useAuth } from '../context/AuthContext';
 import { updateDisplayName, logoutUser } from '../services/authService';
+import {
+  isSimulatingOffline, setSimulatedOffline, subscribeToNetwork,
+} from '../services/networkState';
 import { validateName } from '../utils/validation';
 import { colors, spacing, fontSize } from '../constants/theme';
 
@@ -17,6 +21,13 @@ export default function ProfileScreen() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [simulateOffline, setSimulateOffline] = useState(isSimulatingOffline());
+
+  // Keep the switch in step with the real state (it is restored at startup).
+  useEffect(() => {
+    setSimulateOffline(isSimulatingOffline());
+    return subscribeToNetwork(() => setSimulateOffline(isSimulatingOffline()));
+  }, []);
 
   // Hide the "saved" message after 2 seconds.
   useEffect(() => {
@@ -63,7 +74,27 @@ export default function ProfileScreen() {
           </Card>
         </FadeInView>
 
-        <FadeInView delay={240}>
+        <FadeInView delay={200}>
+          <Card>
+            <View style={styles.switchRow}>
+              <View style={{ flex: 1, marginRight: spacing.md }}>
+                <Text style={styles.switchTitle}>Simulate offline mode</Text>
+                <Text style={styles.switchHint}>
+                  For testing and demos. Turns the connection to the database off so you can
+                  see how SplitBTN works without internet.
+                </Text>
+              </View>
+              <Switch
+                value={simulateOffline}
+                onValueChange={(value) => { setSimulateOffline(value); setSimulatedOffline(value); }}
+                trackColor={{ true: colors.primary, false: colors.border }}
+                accessibilityLabel="Simulate offline mode"
+              />
+            </View>
+          </Card>
+        </FadeInView>
+
+        <FadeInView delay={280}>
           <AppButton title="Log Out" variant="outline" onPress={logoutUser} />
         </FadeInView>
       </ScrollView>
@@ -78,4 +109,7 @@ const styles = StyleSheet.create({
   label: { fontSize: fontSize.small, color: colors.textMuted },
   value: { fontSize: fontSize.body, fontWeight: '600', color: colors.text, marginTop: spacing.xs },
   success: { color: colors.success, marginTop: spacing.sm, fontWeight: '600' },
+  switchRow: { flexDirection: 'row', alignItems: 'center' },
+  switchTitle: { fontSize: fontSize.body, fontWeight: '700', color: colors.text },
+  switchHint: { color: colors.textMuted, fontSize: fontSize.small, marginTop: 2 },
 });

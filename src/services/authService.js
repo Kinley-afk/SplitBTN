@@ -7,6 +7,7 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from './firebase';
+import { clearAllCache } from './cacheStorage';
 
 // Turns Firebase error codes into messages a normal user understands.
 export function getFriendlyAuthError(error) {
@@ -52,8 +53,10 @@ export function loginUser(email, password) {
   return signInWithEmailAndPassword(auth, email.trim(), password);
 }
 
-export function logoutUser() {
-  return signOut(auth);
+// Logging out also erases the saved offline data from this phone.
+export async function logoutUser() {
+  await signOut(auth);
+  await clearAllCache();
 }
 
 // Updates the display name in Firebase Auth AND the Firestore profile

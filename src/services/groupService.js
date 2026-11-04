@@ -1,10 +1,13 @@
 // All Firestore calls for groups live here, not in screens.
 import {
-  collection, doc, getDoc, getDocs, query, where, onSnapshot,
+  collection, doc, getDoc, getDocs, query, where,
   updateDoc, arrayUnion, arrayRemove, runTransaction, writeBatch,
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { listenWithCache } from './cachedListener';
+import { readCache, writeCache } from './cacheStorage';
+import { isOnlineNow } from './networkState';
 
 // No 0/O/1/I so codes are easy to read aloud and type.
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -102,34 +105,57 @@ export async function leaveGroup(groupId, uid) {
   }
 }
 
-// Real-time listener for every group the user belongs to.
-// Returns an unsubscribe function (call it to stop listening).
+// Real-time listener for every group the user belongs to. Shows saved data first
+// (so it works offline after a restart). Returns an unsubscribe function.
 export function subscribeToUserGroups(uid, onData, onError) {
   const groupsQuery = query(collection(db, 'groups'), where('memberIds', 'array-contains', uid));
-  return onSnapshot(
+  return listenWithCache(
     groupsQuery,
+    `groups:${uid}`,
     (snapshot) => {
-      const groups = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      // Newest first. A just-created group has no server timestamp yet, so treat it as newest.
-      const time = (g) => (g.createdAt?.toMillis ? g.createdAt.toMillis() : Number.MAX_SAFE_INTEGER);
-      groups.sort((a, b) => time(b) - time(a));
-      onData(groups);
+      const groups = snapshot.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          name: data.name,
+          inviteCode: data.inviteCode,
+          createdBy: data.createdBy,
+          memberIds: data.memberIds || [],
+          // Plain number (not a Timestamp) so it can be saved on the phone.
+          // A just-created group has no server timestamp yet, so treat it as newest.
+          createdAtMs: data.createdAt?.toMillis ? data.createdAt.toMillis() : Number.MAX_SAFE_INTEGER,
+        };
+      });
+      groups.sort((a, b) => b.createdAtMs - a.createdAtMs);
+      return groups;
     },
+    onData,
     onError
   );
 }
 
 // Loads display names for a list of user ids. Returns { uid: { displayName, email } }.
+// Names are saved on the phone, so they still show offline.
 // A missing profile falls back to "Member" instead of crashing.
 export async function getUserProfiles(uids) {
   const entries = await Promise.all(
     uids.map(async (uid) => {
-      try {
-        const snap = await getDoc(doc(db, 'users', uid));
-        return [uid, snap.exists() ? snap.data() : { displayName: 'Member' }];
-      } catch (error) {
-        return [uid, { displayName: 'Member' }];
+      const cacheKey = `profile:${uid}`;
+      if (isOnlineNow()) {
+        try {
+          const snap = await getDoc(doc(db, 'users', uid));
+          if (snap.exists()) {
+            const profile = { displayName: snap.data().displayName, email: snap.data().email };
+            writeCache(cacheKey, profile);
+            return [uid, profile];
+          }
+          return [uid, { displayName: 'Member' }];
+        } catch (error) {
+          // fall through to the saved copy
+        }
       }
+      const cached = await readCache(cacheKey);
+      return [uid, cached || { displayName: 'Member' }];
     })
   );
   return Object.fromEntries(entries);
