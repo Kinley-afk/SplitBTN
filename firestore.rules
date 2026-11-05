@@ -57,7 +57,7 @@ service cloud.firestore {
           && !(request.auth.uid in request.resource.data.memberIds)
           && request.resource.data.memberIds.size() == resource.data.memberIds.size() - 1;
       }
-      // Used by the subcollections below (expenses, settlements).
+      // Used by the subcollections below (expenses, settlements, receipts).
       function groupData() {
         return get(/databases/$(database)/documents/groups/$(groupId)).data;
       }
@@ -97,6 +97,26 @@ service cloud.firestore {
         allow update: if isGroupMember() && isValidExpense()
           && resource.data.createdBy == request.auth.uid
           && request.resource.data.createdBy == resource.data.createdBy;
+        allow delete: if isGroupMember() && resource.data.createdBy == request.auth.uid;
+      }
+
+      // Receipt photos (one per expense, the document id is the expense id).
+      // The image is JPEG text (base64), kept out of the expense so lists stay light.
+      match /receipts/{receiptId} {
+        allow read: if isGroupMember();
+        // Only the creator of the expense can attach a receipt to it.
+        // getAfter() also works when the expense and receipt are written in one batch.
+        allow create: if isGroupMember()
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.image is string
+          && request.resource.data.image.size() <= 500000
+          && getAfter(/databases/$(database)/documents/groups/$(groupId)/expenses/$(receiptId)).data.createdBy == request.auth.uid;
+        // Replacing: only the person who attached it.
+        allow update: if isGroupMember()
+          && resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.image is string
+          && request.resource.data.image.size() <= 500000;
         allow delete: if isGroupMember() && resource.data.createdBy == request.auth.uid;
       }
 

@@ -1,13 +1,16 @@
 // All Firestore calls for expenses live here, not in screens.
 // Writes use writeWithOfflineSupport, so saving never hangs when offline.
+// An expense and its receipt photo are always written together in one batch.
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, serverTimestamp, Timestamp,
+  collection, doc, writeBatch, serverTimestamp, Timestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { listenWithCache } from './cachedListener';
 import { writeWithOfflineSupport } from './offlineWrite';
 
 const expensesCollection = (groupId) => collection(db, 'groups', groupId, 'expenses');
+// The receipt document has the same id as its expense.
+const receiptRef = (groupId, expenseId) => doc(db, 'groups', groupId, 'receipts', expenseId);
 
 export function getFriendlyExpenseError(error) {
   switch (error?.code) {
@@ -33,6 +36,7 @@ function toExpense(snapshot) {
     splitMethod: data.splitMethod,
     shares: data.shares || {},
     percentages: data.percentages || {},
+    hasReceipt: Boolean(data.hasReceipt),
     createdBy: data.createdBy,
     // A just-saved expense has no server timestamp yet, so treat it as newest.
     createdAtMs: data.createdAt?.toMillis ? data.createdAt.toMillis() : Number.MAX_SAFE_INTEGER,
@@ -54,30 +58,56 @@ function buildPayload(data) {
   };
 }
 
-// The three write functions return 'synced' or 'queued' (saved on the phone, will sync).
-export function addExpense(groupId, data, uid) {
-  return writeWithOfflineSupport(
-    addDoc(expensesCollection(groupId), {
-      ...buildPayload(data),
-      createdBy: uid,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    })
-  );
+// The write functions return 'synced' or 'queued' (saved on the phone, will sync).
+
+// receiptBase64: JPEG text, or null for no receipt.
+export function addExpense(groupId, data, uid, receiptBase64 = null) {
+  const expenseRef = doc(expensesCollection(groupId)); // id generated locally
+  const batch = writeBatch(db);
+  batch.set(expenseRef, {
+    ...buildPayload(data),
+    hasReceipt: Boolean(receiptBase64),
+    createdBy: uid,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  if (receiptBase64) {
+    batch.set(receiptRef(groupId, expenseRef.id), {
+      image: receiptBase64, createdBy: uid, createdAt: serverTimestamp(),
+    });
+  }
+  return writeWithOfflineSupport(batch.commit());
 }
 
-// createdBy and createdAt are never sent, so they cannot be changed.
-export function updateExpense(groupId, expenseId, data) {
-  return writeWithOfflineSupport(
-    updateDoc(doc(db, 'groups', groupId, 'expenses', expenseId), {
-      ...buildPayload(data),
-      updatedAt: serverTimestamp(),
-    })
-  );
+// receiptChange: undefined = leave the receipt alone,
+//                a string  = attach or replace it with this photo,
+//                null      = remove it.
+// createdBy and createdAt are never sent for the expense, so they cannot be changed.
+export function updateExpense(groupId, expenseId, data, uid, receiptChange) {
+  const batch = writeBatch(db);
+  const changes = { ...buildPayload(data), updatedAt: serverTimestamp() };
+
+  if (typeof receiptChange === 'string') {
+    changes.hasReceipt = true;
+    batch.set(receiptRef(groupId, expenseId), {
+      image: receiptChange, createdBy: uid, createdAt: serverTimestamp(),
+    });
+  } else if (receiptChange === null) {
+    changes.hasReceipt = false;
+    batch.delete(receiptRef(groupId, expenseId));
+  }
+
+  batch.update(doc(db, 'groups', groupId, 'expenses', expenseId), changes);
+  return writeWithOfflineSupport(batch.commit());
 }
 
-export function deleteExpense(groupId, expenseId) {
-  return writeWithOfflineSupport(deleteDoc(doc(db, 'groups', groupId, 'expenses', expenseId)));
+// hasReceipt: the receipt document is only deleted if it exists
+// (the security rules cannot delete a document that is not there).
+export function deleteExpense(groupId, expenseId, hasReceipt = false) {
+  const batch = writeBatch(db);
+  batch.delete(doc(db, 'groups', groupId, 'expenses', expenseId));
+  if (hasReceipt) batch.delete(receiptRef(groupId, expenseId));
+  return writeWithOfflineSupport(batch.commit());
 }
 
 // Real-time listener. Newest expense date first. Shows saved data first

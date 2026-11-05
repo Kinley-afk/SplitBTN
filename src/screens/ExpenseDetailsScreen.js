@@ -1,8 +1,10 @@
-// One expense in full: amount, payer, split and each person's share.
+// One expense in full: amount, payer, split, each person's share and the receipt photo.
 // It reads the expense live, so edits appear immediately after saving.
 // Only the creator sees the Edit and Delete buttons.
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, Alert, StyleSheet } from 'react-native';
+import {
+  View, Text, ScrollView, ActivityIndicator, Alert, Image, Modal, Pressable, StyleSheet,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Card from '../components/Card';
 import AppButton from '../components/AppButton';
@@ -12,9 +14,11 @@ import { useGroups } from '../context/GroupsContext';
 import useGroupExpenses from '../hooks/useGroupExpenses';
 import { getUserProfiles } from '../services/groupService';
 import { deleteExpense, getFriendlyExpenseError } from '../services/expenseService';
+import { subscribeToReceipt } from '../services/receiptService';
 import { formatNu } from '../utils/formatCurrency';
 import { formatDisplayDate } from '../utils/dateUtils';
-import { colors, spacing, fontSize } from '../constants/theme';
+import { receiptDataUri } from '../utils/receipt';
+import { colors, spacing, radius, fontSize } from '../constants/theme';
 
 const METHOD_LABELS = { equal: 'Split equally', exact: 'Exact amounts', percent: 'Percentages' };
 
@@ -25,9 +29,12 @@ export default function ExpenseDetailsScreen({ route, navigation }) {
   const { expenses, loading } = useGroupExpenses(groupId);
   const [profiles, setProfiles] = useState({});
   const [deleting, setDeleting] = useState(false);
+  const [receipt, setReceipt] = useState({ image: null, loading: false, error: '' });
+  const [viewerOpen, setViewerOpen] = useState(false);
 
   const group = groups.find((g) => g.id === groupId);
   const expense = expenses.find((e) => e.id === expenseId);
+  const hasReceipt = Boolean(expense?.hasReceipt);
 
   const memberKey = group ? group.memberIds.join(',') : '';
   useEffect(() => {
@@ -36,6 +43,25 @@ export default function ExpenseDetailsScreen({ route, navigation }) {
     getUserProfiles(group.memberIds).then((result) => { if (!cancelled) setProfiles(result); });
     return () => { cancelled = true; };
   }, [memberKey]);
+
+  // Live receipt: loaded only on this screen, and updates if the photo is replaced.
+  useEffect(() => {
+    if (!hasReceipt) {
+      setReceipt({ image: null, loading: false, error: '' });
+      return undefined;
+    }
+    setReceipt({ image: null, loading: true, error: '' });
+    const unsubscribe = subscribeToReceipt(
+      groupId,
+      expenseId,
+      (image) => setReceipt({ image, loading: false, error: '' }),
+      (error) => {
+        console.warn('Receipt listener error:', error.message);
+        setReceipt({ image: null, loading: false, error: 'Could not load the receipt. Check your connection.' });
+      }
+    );
+    return unsubscribe; // listener cleanup
+  }, [groupId, expenseId, hasReceipt]);
 
   if (!expense) {
     return (
@@ -59,7 +85,8 @@ export default function ExpenseDetailsScreen({ route, navigation }) {
   const doDelete = async () => {
     setDeleting(true);
     try {
-      await deleteExpense(groupId, expense.id);
+      // The receipt (if any) is deleted together with the expense.
+      await deleteExpense(groupId, expense.id, expense.hasReceipt);
       navigation.goBack();
     } catch (error) {
       setDeleting(false);
@@ -99,6 +126,26 @@ export default function ExpenseDetailsScreen({ route, navigation }) {
           </Card>
         </FadeInView>
 
+        {hasReceipt ? (
+          <FadeInView delay={180}>
+            <Text style={styles.sectionTitle}>Receipt</Text>
+            <Card>
+              {receipt.loading ? (
+                <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.md }} />
+              ) : receipt.image ? (
+                <Pressable onPress={() => setViewerOpen(true)} accessibilityRole="button"
+                  accessibilityLabel="View receipt full screen">
+                  <Image source={{ uri: receiptDataUri(receipt.image) }} style={styles.receiptImage}
+                    resizeMode="cover" />
+                  <Text style={styles.tapHint}>Tap to enlarge</Text>
+                </Pressable>
+              ) : (
+                <Text style={styles.muted}>{receipt.error || 'The receipt is not available right now.'}</Text>
+              )}
+            </Card>
+          </FadeInView>
+        ) : null}
+
         {isCreator ? (
           <FadeInView delay={240}>
             <AppButton title="Edit Expense"
@@ -110,6 +157,19 @@ export default function ExpenseDetailsScreen({ route, navigation }) {
           <Text style={styles.note}>Only {nameOf(expense.createdBy)} can edit or delete this expense.</Text>
         )}
       </ScrollView>
+
+      {/* Full-screen receipt viewer */}
+      <Modal visible={viewerOpen} animationType="fade" onRequestClose={() => setViewerOpen(false)}>
+        <View style={styles.viewer}>
+          {receipt.image ? (
+            <Image source={{ uri: receiptDataUri(receipt.image) }} style={styles.viewerImage}
+              resizeMode="contain" accessibilityLabel="Receipt" />
+          ) : null}
+          <View style={styles.viewerClose}>
+            <AppButton title="Close" onPress={() => setViewerOpen(false)} />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -134,5 +194,11 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.sm },
   rowLabel: { color: colors.textMuted, fontSize: fontSize.body, flexShrink: 1 },
   rowValue: { color: colors.text, fontWeight: '600', fontSize: fontSize.body, marginLeft: spacing.md },
+  receiptImage: { width: '100%', height: 200, borderRadius: radius.md, backgroundColor: colors.border },
+  tapHint: { color: colors.textMuted, fontSize: fontSize.small, textAlign: 'center', marginTop: spacing.xs },
+  muted: { color: colors.textMuted, textAlign: 'center', paddingVertical: spacing.sm },
   note: { color: colors.textMuted, textAlign: 'center', marginTop: spacing.md },
+  viewer: { flex: 1, backgroundColor: '#000000', justifyContent: 'center' },
+  viewerImage: { flex: 1, width: '100%' },
+  viewerClose: { padding: spacing.lg },
 });

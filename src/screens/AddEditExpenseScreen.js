@@ -1,9 +1,10 @@
 // Add a new expense, or edit one (when route.params.expense exists).
 // The split preview uses calculateSplit, the same function whose result is saved.
 // A new expense also notifies the other group members.
+// An optional receipt photo can be attached, replaced or removed.
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, StyleSheet,
+  View, Text, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Image, StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AppInput from '../components/AppInput';
@@ -16,12 +17,14 @@ import { useGroups } from '../context/GroupsContext';
 import { getUserProfiles } from '../services/groupService';
 import { addExpense, updateExpense, getFriendlyExpenseError } from '../services/expenseService';
 import { notifyMembers } from '../services/notificationService';
+import { pickReceipt } from '../services/receiptService';
 import { calculateSplit, parseMoney } from '../utils/splitCalculator';
 import { validateExpenseTitle, validateAmount, validateExpenseDate } from '../utils/expenseValidation';
 import { toDateInput, parseDateInput } from '../utils/dateUtils';
 import { formatNu } from '../utils/formatCurrency';
+import { receiptDataUri, receiptSizeKb } from '../utils/receipt';
 import { CATEGORIES } from '../constants/categories';
-import { colors, spacing, fontSize } from '../constants/theme';
+import { colors, spacing, radius, fontSize } from '../constants/theme';
 
 const METHODS = [
   { key: 'equal', label: 'Equal' },
@@ -42,6 +45,7 @@ function initialInputs(expense) {
 export default function AddEditExpenseScreen({ route, navigation }) {
   const { groupId, expense } = route.params;
   const isEdit = Boolean(expense);
+  const hadReceipt = Boolean(expense?.hasReceipt);
   const { user } = useAuth();
   const { groups } = useGroups();
   const group = groups.find((g) => g.id === groupId);
@@ -55,6 +59,9 @@ export default function AddEditExpenseScreen({ route, navigation }) {
   const [participantIds, setParticipantIds] = useState(expense?.participantIds ?? group?.memberIds ?? []);
   const [method, setMethod] = useState(expense?.splitMethod ?? 'equal');
   const [inputs, setInputs] = useState(initialInputs(expense));
+  // Receipt: undefined = unchanged, a string = new photo (base64), null = removed.
+  const [receiptImage, setReceiptImage] = useState(undefined);
+  const [receiptBusy, setReceiptBusy] = useState(false);
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -108,6 +115,34 @@ export default function AddEditExpenseScreen({ route, navigation }) {
     return Number.isNaN(value) ? sum : sum + value;
   }, 0);
 
+  // Opens the camera or gallery and shrinks the photo.
+  const handlePickReceipt = async (source) => {
+    setReceiptBusy(true);
+    try {
+      const base64 = await pickReceipt(source);
+      if (base64) setReceiptImage(base64);
+    } catch (error) {
+      console.warn('Receipt pick failed:', error.message);
+      Alert.alert(
+        'Receipt photo',
+        error.message === 'CAMERA_DENIED'
+          ? 'Camera permission is needed to take a photo. You can allow it in your phone settings, or choose a photo from the gallery.'
+          : error.message === 'RECEIPT_TOO_LARGE'
+            ? 'That photo is too large even after shrinking it. Please try a different one.'
+            : 'Could not load the photo. Please try again.'
+      );
+    } finally {
+      setReceiptBusy(false);
+    }
+  };
+
+  // Removing a photo that was only just picked goes back to "unchanged";
+  // removing one that was already saved marks it for deletion.
+  const handleRemoveReceipt = () => setReceiptImage(hadReceipt ? null : undefined);
+
+  const hasNewReceipt = typeof receiptImage === 'string';
+  const showSavedReceipt = hadReceipt && receiptImage === undefined;
+
   const handleSave = async () => {
     const newErrors = {
       title: validateExpenseTitle(title),
@@ -134,9 +169,9 @@ export default function AddEditExpenseScreen({ route, navigation }) {
         percentages: result.percentages,
       };
       if (isEdit) {
-        await updateExpense(groupId, expense.id, data);
+        await updateExpense(groupId, expense.id, data, user.uid, receiptImage);
       } else {
-        await addExpense(groupId, data, user.uid);
+        await addExpense(groupId, data, user.uid, hasNewReceipt ? receiptImage : null);
         // Not awaited: a notification problem must never block saving.
         notifyMembers({
           groupId,
@@ -221,6 +256,32 @@ export default function AddEditExpenseScreen({ route, navigation }) {
             <View style={{ height: spacing.md }} />
             <SplitPreview result={result} nameOf={nameOf} hasAmount={amount.trim() !== ''} />
 
+            {/* Receipt photo (optional) */}
+            <Text style={styles.label}>Receipt photo (optional)</Text>
+            {hasNewReceipt ? (
+              <View style={styles.receiptBox}>
+                <Image source={{ uri: receiptDataUri(receiptImage) }} style={styles.receiptImage}
+                  resizeMode="cover" accessibilityLabel="Receipt preview" />
+                <Text style={styles.receiptMeta}>About {receiptSizeKb(receiptImage)} KB after shrinking</Text>
+              </View>
+            ) : showSavedReceipt ? (
+              <Text style={styles.receiptMeta}>A receipt is attached to this expense.</Text>
+            ) : null}
+            <View style={[styles.chipRow, { marginBottom: spacing.md }]}>
+              {receiptBusy ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : (
+                <>
+                  <Chip label={hasNewReceipt || showSavedReceipt ? 'Retake' : 'Take photo'} icon="camera"
+                    onPress={() => handlePickReceipt('camera')} />
+                  <Chip label="Gallery" icon="images" onPress={() => handlePickReceipt('gallery')} />
+                  {hasNewReceipt || showSavedReceipt ? (
+                    <Chip label="Remove" icon="trash-outline" onPress={handleRemoveReceipt} />
+                  ) : null}
+                </>
+              )}
+            </View>
+
             {errors.split ? <Text style={styles.error}>{errors.split}</Text> : null}
             {errors.form ? <Text style={styles.error}>{errors.form}</Text> : null}
 
@@ -241,5 +302,8 @@ const styles = StyleSheet.create({
   sectionGap: { marginTop: spacing.md },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   assigned: { color: colors.textMuted, fontSize: fontSize.small, marginBottom: spacing.sm },
+  receiptBox: { marginBottom: spacing.sm },
+  receiptImage: { width: '100%', height: 180, borderRadius: radius.md, backgroundColor: colors.border },
+  receiptMeta: { color: colors.textMuted, fontSize: fontSize.small, marginTop: spacing.xs, marginBottom: spacing.sm },
   error: { color: colors.danger, marginBottom: spacing.md, fontSize: fontSize.small },
 });

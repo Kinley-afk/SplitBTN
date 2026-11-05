@@ -1,4 +1,5 @@
 // One line in an expense list. On Home, groupName shows which group it belongs to.
+// A small paperclip shows when the expense has a receipt photo.
 import React from 'react';
 import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,14 +14,19 @@ export default function ExpenseRow({ expense, payerName, groupName, onPress }) {
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${expense.title}, ${formatNu(expense.amount)}`}
+      accessibilityLabel={`${expense.title}, ${formatNu(expense.amount)}${expense.hasReceipt ? ', has receipt' : ''}`}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
       <View style={styles.icon}>
         <Ionicons name={getCategoryIcon(expense.category)} size={20} color={colors.white} />
       </View>
       <View style={styles.info}>
-        <Text style={styles.title} numberOfLines={1}>{expense.title}</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title} numberOfLines={1}>{expense.title}</Text>
+          {expense.hasReceipt ? (
+            <Ionicons name="attach" size={16} color={colors.textMuted} style={styles.clip} />
+          ) : null}
+        </View>
         <Text style={styles.meta} numberOfLines={1}>
           {groupName ? `${groupName} · ${details}` : `${details} · ${expense.category}`}
         </Text>
@@ -41,7 +47,9 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   info: { flex: 1, marginHorizontal: spacing.md },
-  title: { fontSize: fontSize.body, fontWeight: '700', color: colors.text },
+  titleRow: { flexDirection: 'row', alignItems: 'center' },
+  title: { fontSize: fontSize.body, fontWeight: '700', color: colors.text, flexShrink: 1 },
+  clip: { marginLeft: 4 },
   meta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
   amount: { fontSize: fontSize.body, fontWeight: '800', color: colors.text },
 });
